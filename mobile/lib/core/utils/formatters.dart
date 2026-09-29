@@ -49,3 +49,10 @@ String formatBytes(int bytes) {
   }
   return '${value.toStringAsFixed(1)} ${units[unit]}';
 }
+
+/// Integer clamp with an `int` static type.
+int clampInt(int value, int min, int max) {
+  if (value < min) return min;
+  if (value > max) return max;
+  return value;
+}

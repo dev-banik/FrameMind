@@ -59,6 +59,23 @@ class ApiClient {
     return _send(() => _dio.delete<dynamic>(path, cancelToken: cancelToken));
   }
 
+  /// `GET /health` (unauthenticated). Returns true when the API is healthy.
+  Future<bool> checkHealth() async {
+    try {
+      final response = await _dio.get<dynamic>(
+        '/health',
+        options: Options(
+          extra: AuthInterceptor.skipAuth,
+          responseType: ResponseType.plain,
+          receiveTimeout: const Duration(seconds: 10),
+        ),
+      );
+      return response.statusCode == 200;
+    } on DioException {
+      return false;
+    }
+  }
+
   Future<dynamic> _send(Future<Response<dynamic>> Function() request) async {
     try {
       final response = await request();
