@@ -1,0 +1,57 @@
+# ---------- .NET ----------
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.rsuser
+TestResults/
+appsettings.*.local.json
+*.local.json
+
+# ---------- Flutter / Dart ----------
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.iml
+**/android/.gradle/
+**/android/local.properties
+**/android/app/debug
+**/android/app/profile
+**/android/app/release
+**/android/key.properties
+**/android/app/google-services.json
+**/ios/Pods/
+**/ios/.symlinks/
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/Runner/GoogleService-Info.plist
+**/ios/Flutter/ephemeral/
+lib/firebase_options.dart
+
+# ---------- Secrets / env ----------
+.env
+.env.*
+!.env.example
+*.pem
+*.p8
+*.p12
+*firebase-adminsdk*.json
+service-account*.json
+
+# ---------- IDE / OS ----------
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+
+# ---------- Runtime ----------
+tmp/
+work/
+*.log
