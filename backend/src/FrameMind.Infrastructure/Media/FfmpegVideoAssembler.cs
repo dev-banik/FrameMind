@@ -105,14 +105,15 @@ public sealed class FfmpegVideoAssembler(FfmpegTools ffmpeg, IOptions<MediaOptio
         var chunks = Chunk(text.Trim(), 84);
         var totalChars = chunks.Sum(c => c.Length);
         var cursor = start;
-        foreach (var chunk in chunks)
+        for (var i = 0; i < chunks.Count; i++)
         {
-            var span = (end - start) * chunk.Length / totalChars;
+            // Pin the last cue to `end` so rounding doesn't leave a gap.
+            var cueEnd = i == chunks.Count - 1 ? end : cursor + (end - start) * chunks[i].Length / totalChars;
             srt.AppendLine(cue.ToString())
-               .AppendLine($"{Ts(cursor)} --> {Ts(cursor + span)}")
-               .AppendLine(chunk)
+               .AppendLine($"{Ts(cursor)} --> {Ts(cueEnd)}")
+               .AppendLine(chunks[i])
                .AppendLine();
-            cursor += span;
+            cursor = cueEnd;
             cue++;
         }
         return cue;

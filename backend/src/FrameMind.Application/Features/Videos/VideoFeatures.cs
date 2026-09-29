@@ -82,7 +82,10 @@ public static class FileNames
     public static string Slug(string title)
     {
         var chars = title.Trim().ToLowerInvariant()
-            .Select(ch => char.IsLetterOrDigit(ch) ? ch : '-')
+            // Keep combining marks so Bangla/Hindi vowel signs survive.
+            .Select(ch => char.IsLetterOrDigit(ch)
+                          || char.GetUnicodeCategory(ch) is System.Globalization.UnicodeCategory.NonSpacingMark
+                              or System.Globalization.UnicodeCategory.SpacingCombiningMark ? ch : '-')
             .ToArray();
         var slug = string.Join('-', new string(chars).Split('-', StringSplitOptions.RemoveEmptyEntries));
         if (slug.Length > 60) slug = slug[..60].TrimEnd('-');

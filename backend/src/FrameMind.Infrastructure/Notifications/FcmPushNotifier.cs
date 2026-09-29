@@ -19,9 +19,11 @@ public sealed class FcmPushNotifier(IOptions<FirebaseOptions> options, ILogger<F
         // FCM accepts at most 500 tokens per multicast.
         foreach (var batch in deviceTokens.Chunk(500))
         {
+#pragma warning disable CS0618 // The mobile app sends FCM registration tokens, which is what Tokens carries.
             var response = await messaging.SendEachForMulticastAsync(new MulticastMessage
             {
                 Tokens = batch,
+#pragma warning restore CS0618
                 Notification = new Notification { Title = message.Title, Body = message.Body },
                 Data = message.Data,
                 Android = new AndroidConfig { Priority = Priority.High },

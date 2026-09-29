@@ -45,11 +45,21 @@ class DownloadState {
 /// Per-video download state (keyed by video id).
 class VideoDownloadController extends AutoDisposeFamilyNotifier<DownloadState, String> {
   CancelToken? _cancelToken;
+  bool _disposed = false;
 
   @override
   DownloadState build(String arg) {
-    ref.onDispose(() => _cancelToken?.cancel('disposed'));
+    _disposed = false;
+    ref.onDispose(() {
+      _disposed = true;
+      _cancelToken?.cancel('disposed');
+    });
     return const DownloadState();
+  }
+
+  /// Ignores updates after the provider was disposed (e.g. dialog closed).
+  void _update(DownloadState Function(DownloadState current) change) {
+    if (!_disposed) state = change(state);
   }
 
   VideoDownloadService get _service => ref.read(videoDownloadServiceProvider);
@@ -61,11 +71,11 @@ class VideoDownloadController extends AutoDisposeFamilyNotifier<DownloadState, S
     if (state.isWorking) return null;
 
     _cancelToken = CancelToken();
-    state = state.copyWith(
+    _update((s) => s.copyWith(
       phase: DownloadPhase.downloading,
       progress: 0,
       error: () => null,
-    );
+    ));
     try {
       var lastReported = 0.0;
       final file = await _service.download(
@@ -75,22 +85,22 @@ class VideoDownloadController extends AutoDisposeFamilyNotifier<DownloadState, S
           // Throttle rebuilds to ~1% steps.
           if (p - lastReported >= 0.01 || p >= 1) {
             lastReported = p;
-            state = state.copyWith(progress: p);
+            _update((s) => s.copyWith(progress: p));
           }
         },
       );
-      state = state.copyWith(
+      _update((s) => s.copyWith(
         phase: DownloadPhase.idle,
         progress: 1,
         filePath: file.path,
-      );
+      ));
       return file.path;
     } catch (e) {
       if (e is ApiException && e.isCancelled) {
-        state = const DownloadState();
+        _update((_) => const DownloadState());
         return null;
       }
-      state = state.copyWith(phase: DownloadPhase.failed, error: () => e);
+      _update((s) => s.copyWith(phase: DownloadPhase.failed, error: () => e));
       return null;
     }
   }
@@ -101,13 +111,13 @@ class VideoDownloadController extends AutoDisposeFamilyNotifier<DownloadState, S
     if (state.isWorking) return false;
     final path = await ensureDownloaded();
     if (path == null) return false;
-    state = state.copyWith(phase: DownloadPhase.saving, error: () => null);
+    _update((s) => s.copyWith(phase: DownloadPhase.saving, error: () => null));
     try {
       await _service.saveToGallery(path);
-      state = state.copyWith(phase: DownloadPhase.saved);
+      _update((s) => s.copyWith(phase: DownloadPhase.saved));
       return true;
     } catch (e) {
-      state = state.copyWith(phase: DownloadPhase.failed, error: () => e);
+      _update((s) => s.copyWith(phase: DownloadPhase.failed, error: () => e));
       return false;
     }
   }
