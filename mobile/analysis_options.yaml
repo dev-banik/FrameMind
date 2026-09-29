@@ -1,0 +1,16 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    - lib/firebase_options.dart
+    - build/**
+
+linter:
+  rules:
+    always_declare_return_types: true
+    avoid_print: true
+    prefer_single_quotes: true
+    prefer_final_locals: true
+    sort_child_properties_last: true
+    use_super_parameters: true
+    unawaited_futures: false
