@@ -30,7 +30,7 @@ abstract final class AppConfig {
   static const Duration receiveTimeout = Duration(seconds: 45);
 
   /// Video analysis may take up to ~60s server-side.
-  static const Duration analyzeTimeout = Duration(seconds: 120);
+  static const Duration analyzeTimeout = Duration(minutes: 5);
 
   /// Script generation calls an LLM and can be slow.
   static const Duration scriptTimeout = Duration(seconds: 120);
