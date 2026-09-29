@@ -55,3 +55,6 @@ Thumbs.db
 tmp/
 work/
 *.log
+
+# Local secrets mounted into containers
+secrets/

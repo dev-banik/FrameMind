@@ -1,0 +1,87 @@
+name: framemind
+
+x-backend-env: &backend-env
+  ConnectionStrings__Postgres: Host=postgres;Database=framemind;Username=framemind;Password=${POSTGRES_PASSWORD:-framemind}
+  ConnectionStrings__Redis: redis:6379
+  ConnectionStrings__RabbitMq: amqp://framemind:${RABBITMQ_PASSWORD:-framemind}@rabbitmq:5672
+  Anthropic__ApiKey: ${ANTHROPIC_API_KEY:-}
+  Firebase__ProjectId: ${FIREBASE_PROJECT_ID:-}
+  Firebase__PushEnabled: ${FIREBASE_PUSH_ENABLED:-false}
+  Firebase__CredentialsPath: ${FIREBASE_CREDENTIALS_PATH:-}
+  Storage__ServiceUrl: http://minio:9000
+  Storage__PublicServiceUrl: ${STORAGE_PUBLIC_URL:-http://localhost:9000}
+  Storage__AccessKey: ${MINIO_ROOT_USER:-framemind}
+  Storage__SecretKey: ${MINIO_ROOT_PASSWORD:-framemind-secret}
+  Storage__ForcePathStyle: "true"
+  Storage__CreateBucketIfMissing: "true"
+  VideoGeneration__Provider: ${VIDEO_PROVIDER:-Placeholder}
+  VideoGeneration__Veo__ApiKey: ${GOOGLE_API_KEY:-}
+  Voice__Provider: ${VOICE_PROVIDER:-Placeholder}
+  Voice__ElevenLabs__ApiKey: ${ELEVENLABS_API_KEY:-}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: framemind
+      POSTGRES_USER: framemind
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-framemind}
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U framemind"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: framemind
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-framemind}
+    ports: ["5672:5672", "15672:15672"]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-framemind}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-framemind-secret}
+    ports: ["9000:9000", "9001:9001"]
+    volumes: [miniodata:/data]
+
+  api:
+    build: { context: ./backend, target: api }
+    environment:
+      <<: *backend-env
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      Database__MigrateOnStartup: "true"
+    ports: ["8080:8080"]
+    volumes: ["${FIREBASE_CREDENTIALS_DIR:-./secrets}:/secrets:ro"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      redis: { condition: service_started }
+      minio: { condition: service_started }
+
+  worker:
+    build: { context: ./backend, target: worker }
+    environment:
+      <<: *backend-env
+      DOTNET_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+    volumes: ["${FIREBASE_CREDENTIALS_DIR:-./secrets}:/secrets:ro"]
+    depends_on:
+      api: { condition: service_started }
+    deploy:
+      replicas: ${WORKER_REPLICAS:-1}
+
+volumes:
+  pgdata:
+  miniodata:

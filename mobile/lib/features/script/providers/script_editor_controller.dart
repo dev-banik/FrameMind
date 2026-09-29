@@ -246,6 +246,21 @@ class ScriptEditorController
         ),
       );
 
+  /// Sets a dialogue's character from the picker (re-keys the row's fields).
+  void setDialogueCharacter(int sceneId, int index, String name) => _edit(
+        (s) => s.copyWith(
+          scenes: _mapScene(s.scenes, sceneId, (e) {
+            if (index < 0 || index >= e.scene.dialogues.length) return e;
+            final list = [...e.scene.dialogues];
+            list[index] = list[index].copyWith(character: name);
+            return e.copyWith(
+              revision: e.revision + 1,
+              scene: e.scene.copyWith(dialogues: list),
+            );
+          }),
+        ),
+      );
+
   void removeDialogue(int sceneId, int index) => _edit(
         (s) => s.copyWith(
           scenes: _mapScene(s.scenes, sceneId, (e) {
