@@ -15,12 +15,13 @@ backend/            ASP.NET Core 9 Web API + worker (Clean Architecture, CQRS)
   src/FrameMind.Domain          Entities, enums, domain rules
   src/FrameMind.Application     CQRS commands/queries (MediatR), validation, ports
   src/FrameMind.Infrastructure  EF Core/PostgreSQL, Redis, RabbitMQ, S3/R2,
-                                Claude, Veo, ElevenLabs, FFmpeg, FCM adapters
+                                Ollama/Claude, Storyboard/Veo, edge-tts/ElevenLabs,
+                                FFmpeg, FCM adapters
   src/FrameMind.Api             REST API (Firebase JWT auth, rate limiting)
   src/FrameMind.Worker          Queue consumer: voice → video → render → notify
 mobile/             Flutter app (Android + iOS), Riverpod, Hive
 docs/API.md         REST contract shared by backend and mobile
-docker-compose.yml  PostgreSQL, Redis, RabbitMQ, MinIO, API, Worker
+docker-compose.yml  PostgreSQL, Redis, RabbitMQ, MinIO, Ollama, API, Worker
 ```
 
 ## Architecture
@@ -28,12 +29,12 @@ docker-compose.yml  PostgreSQL, Redis, RabbitMQ, MinIO, API, Worker
 ```
 Flutter app ──HTTPS + Firebase ID token──▶ API ──▶ PostgreSQL
                                             │ ├──▶ Redis (analysis cache)
-                                            │ └──▶ Claude (analysis + scripts)
+                                            │ └──▶ Ollama (free) / Claude (analysis + scripts)
                                             ▼
                                         RabbitMQ (priority queue)
                                             ▼
-                                         Worker ──▶ ElevenLabs (voice)
-                                            │   ──▶ Veo / Runway / Luma / Kling (scenes)
+                                         Worker ──▶ edge-tts (free) / ElevenLabs (voice)
+                                            │   ──▶ Storyboard images (free) / Veo (scenes)
                                             │   ──▶ FFmpeg (subtitles, transitions, MP4)
                                             │   ──▶ S3 / R2 (signed URLs)
                                             └──▶ Firebase Cloud Messaging
@@ -44,26 +45,33 @@ non-identifying attributes (genre, mood, pacing, story pattern). The script
 generator never receives the source transcript, character names or
 dialogue, and is instructed to invent new characters, settings and plot.
 
-## Running locally
+## Running locally — free, no API keys
 
-Prerequisites: Docker, .NET 9 SDK, Flutter 3.24+, a Firebase project.
+Everything runs on free resources by default:
+
+| Stage | Free default (no key) | Paid upgrade (set in `.env`) |
+|---|---|---|
+| Analysis + scripts | **Ollama** + `gemma3:4b`, local on CPU (Bangla/Hindi/English, reads images) | `LLM_PROVIDER=Claude` + `ANTHROPIC_API_KEY` |
+| Scene visuals | **Storyboard**: one AI image per scene (Pollinations.ai, keyless) animated with pan/zoom | `VIDEO_PROVIDER=Veo` + `GOOGLE_API_KEY` |
+| Voice | **edge-tts** neural voices (falls back to offline eSpeak NG) | `VOICE_PROVIDER=ElevenLabs` + `ELEVENLABS_API_KEY` |
+| Login + push | Firebase free (Spark) plan | – |
+| DB, cache, queue, storage | PostgreSQL, Redis, RabbitMQ, MinIO in Docker | – |
+
+Prerequisites: [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+(free for personal use), ~12 GB free disk, 16 GB RAM recommended.
 
 ```bash
-cp .env.example .env         # fill in API keys (see below)
-docker compose up -d --build # infra + api (http://localhost:8080) + worker
+cp .env.example .env           # defaults are already the free setup
+docker compose up -d --build   # first run also downloads the AI model (~3.3 GB)
+curl http://localhost:8080/health
 ```
 
-Without video/voice API keys the worker uses the built-in `Placeholder`
-providers (FFmpeg-rendered title cards and silent audio) so the full pipeline
-can be exercised end-to-end.
+What to expect on a laptop CPU: analysis 1–4 min, script 2–6 min, and a
+60-second video 5–15 min. Paid providers are much faster.
 
-| Variable | Purpose |
-|---|---|
-| `ANTHROPIC_API_KEY` | Video analysis and script generation (Claude) |
-| `GOOGLE_API_KEY` | Google Veo scene generation (`VideoGeneration__Provider=Veo`) |
-| `ELEVENLABS_API_KEY` | Narration (`Voice__Provider=ElevenLabs`) |
-| `FIREBASE_PROJECT_ID` | Validates Firebase ID tokens |
-| `GOOGLE_APPLICATION_CREDENTIALS` | Service account for FCM push |
+Free-tier caveats: Pollinations and edge-tts are public free services with no
+SLA. They may rate-limit or change. The pipeline falls back to title cards or
+eSpeak voice for a scene instead of failing the whole video.
 
 Mobile app: see [mobile/README.md](mobile/README.md).
 

@@ -1,14 +1,14 @@
 using System.Text;
 using System.Text.Json;
-using Anthropic.Models.Beta.Messages;
 using FrameMind.Application.Abstractions;
 using FrameMind.Domain.Enums;
 using FrameMind.Domain.ValueObjects;
 using FrameMind.Infrastructure.Persistence;
+using Microsoft.Extensions.Options;
 
 namespace FrameMind.Infrastructure.AI;
 
-public sealed class ClaudeScriptGenerator(ClaudeJsonClient claude) : IScriptGenerator
+public sealed class LlmScriptGenerator(ILlmJsonClient llm, IOptions<LlmOptions> options) : IScriptGenerator
 {
     private const string System = """
         You are an award-winning short-form video writer and storyboard artist.
@@ -106,8 +106,8 @@ public sealed class ClaudeScriptGenerator(ClaudeJsonClient claude) : IScriptGene
     public async Task<Script> GenerateAsync(ScriptRequest request, CancellationToken ct)
     {
         var prompt = Brief(request) + "\nWrite the script now.";
-        var script = await claude.CompleteAsync<Script>(System, [ClaudeJsonClient.Text(prompt)], FullScriptSchema, Effort.Medium, ct);
-        return Sanitize(script);
+        var script = await llm.CompleteAsync<Script>(System, [new LlmText(prompt)], FullScriptSchema, LlmEffort.Medium, ct);
+        return Sanitize(script, request.DurationSeconds);
     }
 
     public async Task<Script> RegenerateScriptAsync(ScriptRequest request, Script previous, string? instructions, CancellationToken ct)
@@ -118,8 +118,8 @@ public sealed class ClaudeScriptGenerator(ClaudeJsonClient claude) : IScriptGene
             .AppendLine(Serialize(previous))
             .AppendLine(Instructions(instructions))
             .ToString();
-        var script = await claude.CompleteAsync<Script>(System, [ClaudeJsonClient.Text(prompt)], FullScriptSchema, Effort.Medium, ct);
-        return Sanitize(script);
+        var script = await llm.CompleteAsync<Script>(System, [new LlmText(prompt)], FullScriptSchema, LlmEffort.Medium, ct);
+        return Sanitize(script, request.DurationSeconds);
     }
 
     public async Task<Scene> RegenerateSceneAsync(
@@ -135,12 +135,16 @@ public sealed class ClaudeScriptGenerator(ClaudeJsonClient claude) : IScriptGene
                         $"keep its duration at {current.DurationSeconds} seconds, and make it noticeably better or different.")
             .AppendLine(Instructions(instructions))
             .ToString();
-        var scene = await claude.CompleteAsync<Scene>(System, [ClaudeJsonClient.Text(prompt)], SceneSchema, Effort.Low, ct);
+        var scene = await llm.CompleteAsync<Scene>(System, [new LlmText(prompt)], SceneSchema, LlmEffort.Low, ct);
         return scene with { Number = sceneNumber, DurationSeconds = current.DurationSeconds };
     }
 
     public async Task<IReadOnlyList<ScenePrompt>> BuildScenePromptsAsync(Script script, VideoStyle style, CancellationToken ct)
     {
+        // A slow local model adds minutes here for little gain on still images; build prompts directly.
+        if (!options.Value.EnhanceScenePrompts)
+            return script.Scenes.Select(s => new ScenePrompt(s.Number, MechanicalPrompt(script, s, style), s.DurationSeconds)).ToList();
+
         const string system = """
             You write prompts for a text-to-video model. For each scene, produce one
             self-contained English prompt (60–120 words) that includes: the visual style,
@@ -158,7 +162,7 @@ public sealed class ClaudeScriptGenerator(ClaudeJsonClient claude) : IScriptGene
             Return one prompt per scene, using the same scene numbers.
             """;
 
-        var result = await claude.CompleteAsync<PromptsResult>(system, [ClaudeJsonClient.Text(prompt)], PromptsSchema, Effort.Low, ct);
+        var result = await llm.CompleteAsync<PromptsResult>(system, [new LlmText(prompt)], PromptsSchema, LlmEffort.Low, ct);
         var byNumber = result.Scenes.GroupBy(s => s.Number).ToDictionary(g => g.Key, g => g.First().Prompt);
 
         // Fall back to a mechanical prompt for any scene the model skipped.
@@ -166,7 +170,7 @@ public sealed class ClaudeScriptGenerator(ClaudeJsonClient claude) : IScriptGene
             s.Number,
             byNumber.TryGetValue(s.Number, out var p) && !string.IsNullOrWhiteSpace(p)
                 ? p
-                : $"{StyleDirection(style)}. {s.Visual} Camera: {s.CameraDirection}.",
+                : MechanicalPrompt(script, s, style),
             s.DurationSeconds)).ToList();
     }
 
@@ -225,13 +229,42 @@ public sealed class ClaudeScriptGenerator(ClaudeJsonClient claude) : IScriptGene
 
     private static string Serialize(Script s) => JsonSerializer.Serialize(s, AppDbContext.JsonOptions);
 
-    /// <summary>Clamp model output to the limits the rest of the pipeline assumes.</summary>
-    private static Script Sanitize(Script s) => (s with
+    /// <summary>
+    /// Clamp model output to the limits the rest of the pipeline assumes, and rescale
+    /// scene lengths so they add up to the requested duration (small models drift).
+    /// </summary>
+    internal static Script Sanitize(Script s, int targetSeconds)
     {
-        Scenes = s.Scenes
+        var scenes = s.Scenes
             .Where(x => !string.IsNullOrWhiteSpace(x.Visual))
             .Take(60)
             .Select(x => x with { DurationSeconds = Math.Clamp(x.DurationSeconds, 1, 30) })
-            .ToList(),
-    }).Renumbered();
+            .ToList();
+        if (scenes.Count == 0)
+            throw new Application.Common.ExternalServiceException("The AI returned an empty script. Please try again.");
+
+        var total = scenes.Sum(x => x.DurationSeconds);
+        if (Math.Abs(total - targetSeconds) > 2)
+        {
+            var factor = (double)targetSeconds / total;
+            scenes = scenes.Select(x => x with { DurationSeconds = Math.Clamp((int)Math.Round(x.DurationSeconds * factor), 2, 30) }).ToList();
+            // Put the rounding remainder on the longest scene.
+            var diff = targetSeconds - scenes.Sum(x => x.DurationSeconds);
+            var i = scenes.IndexOf(scenes.MaxBy(x => x.DurationSeconds)!);
+            scenes[i] = scenes[i] with { DurationSeconds = Math.Clamp(scenes[i].DurationSeconds + diff, 2, 30) };
+        }
+
+        return (s with { Scenes = scenes }).Renumbered();
+    }
+
+    /// <summary>Deterministic prompt: style + scene + full look of each character who appears.</summary>
+    private static string MechanicalPrompt(Script script, Scene scene, VideoStyle style)
+    {
+        var text = $"{scene.Visual} {scene.Narration} {string.Join(' ', scene.Dialogues.Select(d => d.Character))}";
+        var cast = script.Characters
+            .Where(c => text.Contains(c.Name, StringComparison.OrdinalIgnoreCase))
+            .Select(c => $"{c.Name}: {c.Description}");
+        return $"{StyleDirection(style)}. {scene.Visual} {string.Join(". ", cast)}. " +
+               $"Camera: {scene.CameraDirection}. No text, no captions, no watermark.";
+    }
 }

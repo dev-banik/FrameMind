@@ -29,11 +29,12 @@ abstract final class AppConfig {
   static const Duration connectTimeout = Duration(seconds: 20);
   static const Duration receiveTimeout = Duration(seconds: 45);
 
-  /// Video analysis may take up to ~60s server-side.
-  static const Duration analyzeTimeout = Duration(minutes: 5);
+  /// Analysis downloads the source and runs a vision model; on the free local
+  /// (CPU) model this can take several minutes.
+  static const Duration analyzeTimeout = Duration(minutes: 10);
 
-  /// Script generation calls an LLM and can be slow.
-  static const Duration scriptTimeout = Duration(seconds: 120);
+  /// Script generation calls an LLM; the free local model is slow on CPU.
+  static const Duration scriptTimeout = Duration(minutes: 10);
 
   static const Duration jobPollInterval = Duration(seconds: 4);
 

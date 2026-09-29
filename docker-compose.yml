@@ -4,6 +4,9 @@ x-backend-env: &backend-env
   ConnectionStrings__Postgres: Host=postgres;Database=framemind;Username=framemind;Password=${POSTGRES_PASSWORD:-framemind}
   ConnectionStrings__Redis: redis:6379
   ConnectionStrings__RabbitMq: amqp://framemind:${RABBITMQ_PASSWORD:-framemind}@rabbitmq:5672
+  Llm__Provider: ${LLM_PROVIDER:-Ollama}
+  Llm__Ollama__BaseUrl: http://ollama:11434
+  Llm__Ollama__Model: ${OLLAMA_MODEL:-gemma3:4b}
   Anthropic__ApiKey: ${ANTHROPIC_API_KEY:-}
   Firebase__ProjectId: ${FIREBASE_PROJECT_ID:-}
   Firebase__PushEnabled: ${FIREBASE_PUSH_ENABLED:-false}
@@ -14,9 +17,9 @@ x-backend-env: &backend-env
   Storage__SecretKey: ${MINIO_ROOT_PASSWORD:-framemind-secret}
   Storage__ForcePathStyle: "true"
   Storage__CreateBucketIfMissing: "true"
-  VideoGeneration__Provider: ${VIDEO_PROVIDER:-Placeholder}
+  VideoGeneration__Provider: ${VIDEO_PROVIDER:-Storyboard}
   VideoGeneration__Veo__ApiKey: ${GOOGLE_API_KEY:-}
-  Voice__Provider: ${VOICE_PROVIDER:-Placeholder}
+  Voice__Provider: ${VOICE_PROVIDER:-EdgeTts}
   Voice__ElevenLabs__ApiKey: ${ELEVENLABS_API_KEY:-}
 
 services:
@@ -57,6 +60,25 @@ services:
     ports: ["9000:9000", "9001:9001"]
     volumes: [miniodata:/data]
 
+  # Free local LLM (CPU). First start downloads the model (~3.3 GB) once.
+  ollama:
+    image: ollama/ollama:latest
+    ports: ["11434:11434"]
+    volumes: [ollamadata:/root/.ollama]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      retries: 30
+
+  ollama-pull:
+    image: ollama/ollama:latest
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["ollama", "pull", "${OLLAMA_MODEL:-gemma3:4b}"]
+    depends_on:
+      ollama: { condition: service_healthy }
+    restart: "no"
+
   api:
     build: { context: ./backend, target: api }
     environment:
@@ -70,6 +92,7 @@ services:
       rabbitmq: { condition: service_healthy }
       redis: { condition: service_started }
       minio: { condition: service_started }
+      ollama: { condition: service_healthy }
 
   worker:
     build: { context: ./backend, target: worker }
@@ -85,3 +108,4 @@ services:
 volumes:
   pgdata:
   miniodata:
+  ollamadata:

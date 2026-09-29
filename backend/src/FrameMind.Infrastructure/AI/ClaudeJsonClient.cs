@@ -13,11 +13,12 @@ namespace FrameMind.Infrastructure.AI;
 /// (structured outputs) deserialized to <typeparamref name="T"/>.
 /// </summary>
 public sealed class ClaudeJsonClient(AnthropicClient client, IOptions<AnthropicOptions> options, ILogger<ClaudeJsonClient> logger)
+    : ILlmJsonClient
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     public async Task<T> CompleteAsync<T>(
-        string system, List<BetaContentBlockParam> content, string jsonSchema, Effort effort, CancellationToken ct)
+        string system, IReadOnlyList<LlmPart> parts, string jsonSchema, LlmEffort effort, CancellationToken ct)
     {
         var schema = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(jsonSchema)!;
 
@@ -34,10 +35,10 @@ public sealed class ClaudeJsonClient(AnthropicClient client, IOptions<AnthropicO
                 System = system,
                 OutputConfig = new BetaOutputConfig
                 {
-                    Effort = effort,
+                    Effort = effort switch { LlmEffort.Low => Effort.Low, LlmEffort.High => Effort.High, _ => Effort.Medium },
                     Format = new BetaJsonOutputFormat { Schema = schema },
                 },
-                Messages = [new BetaMessageParam { Role = Role.User, Content = content }],
+                Messages = [new BetaMessageParam { Role = Role.User, Content = parts.Select(ToBlock).ToList() }],
             }, ct);
         }
         catch (AnthropicRateLimitException ex)
@@ -68,10 +69,15 @@ public sealed class ClaudeJsonClient(AnthropicClient client, IOptions<AnthropicO
         }
     }
 
-    public static BetaTextBlockParam Text(string text) => new() { Text = text };
+    public int MaxImages => 8;
 
-    public static BetaImageBlockParam Jpeg(byte[] bytes) => new()
+    private static BetaContentBlockParam ToBlock(LlmPart part) => part switch
     {
-        Source = new BetaBase64ImageSource { Data = Convert.ToBase64String(bytes), MediaType = MediaType.ImageJpeg },
+        LlmJpeg img => new BetaImageBlockParam
+        {
+            Source = new BetaBase64ImageSource { Data = Convert.ToBase64String(img.Bytes), MediaType = MediaType.ImageJpeg },
+        },
+        LlmText t => new BetaTextBlockParam { Text = t.Text },
+        _ => throw new ArgumentOutOfRangeException(nameof(part)),
     };
 }

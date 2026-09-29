@@ -1,6 +1,5 @@
 using System.Text;
 using System.Text.Json;
-using Anthropic.Models.Beta.Messages;
 using FrameMind.Application.Abstractions;
 using FrameMind.Domain.Enums;
 using FrameMind.Domain.ValueObjects;
@@ -10,7 +9,7 @@ using Microsoft.Extensions.Logging;
 
 namespace FrameMind.Infrastructure.AI;
 
-public sealed class ClaudeVideoAnalyzer(SourceVideoProbe probe, ClaudeJsonClient claude) : IVideoAnalyzer
+public sealed class LlmVideoAnalyzer(SourceVideoProbe probe, ILlmJsonClient llm) : IVideoAnalyzer
 {
     private const string System = """
         You are a film and social-video analyst. You will receive public metadata and
@@ -53,6 +52,7 @@ public sealed class ClaudeVideoAnalyzer(SourceVideoProbe probe, ClaudeJsonClient
     {
         var sample = await probe.SampleAsync(videoUrl, ct);
         var meta = sample.Metadata;
+        var frames = EvenlySpaced(sample.Keyframes, llm.MaxImages);
 
         var text = new StringBuilder()
             .AppendLine($"Platform: {platform}")
@@ -63,16 +63,16 @@ public sealed class ClaudeVideoAnalyzer(SourceVideoProbe probe, ClaudeJsonClient
             .AppendLine("Description:")
             .AppendLine(meta.Description)
             .AppendLine()
-            .AppendLine(sample.Keyframes.Count > 0
-                ? $"The {sample.Keyframes.Count} image(s) above are keyframes in chronological order."
+            .AppendLine(frames.Count > 0
+                ? $"The {frames.Count} attached image(s) are keyframes in chronological order."
                 : "No keyframes could be extracted; rely on the metadata.")
             .ToString();
 
-        var content = new List<BetaContentBlockParam>();
-        content.AddRange(sample.Keyframes.Select(f => (BetaContentBlockParam)ClaudeJsonClient.Jpeg(f)));
-        content.Add(ClaudeJsonClient.Text(text));
+        var content = new List<LlmPart>();
+        content.AddRange(frames.Select(f => new LlmJpeg(f)));
+        content.Add(new LlmText(text));
 
-        var r = await claude.CompleteAsync<Result>(System, content, Schema, Effort.Medium, ct);
+        var r = await llm.CompleteAsync<Result>(System, content, Schema, LlmEffort.Medium, ct);
         return new VideoAnalysis
         {
             SourceTitle = meta.Title,
@@ -89,10 +89,16 @@ public sealed class ClaudeVideoAnalyzer(SourceVideoProbe probe, ClaudeJsonClient
             Summary = r.Summary,
         };
     }
+
+    private static List<byte[]> EvenlySpaced(IReadOnlyList<byte[]> frames, int max)
+    {
+        if (frames.Count <= max) return frames.ToList();
+        return Enumerable.Range(0, max).Select(i => frames[i * frames.Count / max]).ToList();
+    }
 }
 
 /// <summary>Caches analyses per URL in Redis so re-analyzing a popular video is instant.</summary>
-public sealed class CachedVideoAnalyzer(ClaudeVideoAnalyzer inner, IDistributedCache cache, ILogger<CachedVideoAnalyzer> logger)
+public sealed class CachedVideoAnalyzer(LlmVideoAnalyzer inner, IDistributedCache cache, ILogger<CachedVideoAnalyzer> logger)
     : IVideoAnalyzer
 {
     private static readonly DistributedCacheEntryOptions Ttl = new() { AbsoluteExpirationRelativeToNow = TimeSpan.FromDays(7) };

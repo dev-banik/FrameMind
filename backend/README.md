@@ -66,12 +66,14 @@ The OpenAPI document is served at `/openapi/v1.json` in Development.
 | Key | Default | Notes |
 |---|---|---|
 | `ConnectionStrings:Postgres/Redis/RabbitMq` | localhost | |
-| `Anthropic:ApiKey`, `Anthropic:Model` | –, `claude-opus-5-5` | Analysis, scripts, scene prompts |
+| `Llm:Provider` | `Ollama` | `Ollama` (free, local) or `Claude` |
+| `Llm:Ollama:BaseUrl`, `Llm:Ollama:Model` | `http://localhost:11434`, `gemma3:4b` | Any Ollama vision model works |
+| `Anthropic:ApiKey`, `Anthropic:Model` | –, `claude-opus-5-5` | Used when `Llm:Provider=Claude` |
 | `Firebase:ProjectId` | – | Required in production for token validation |
 | `Firebase:PushEnabled`, `Firebase:CredentialsPath` | `false` | FCM service account |
 | `Storage:*` | MinIO on :9000 | Set `ServiceUrl` to your R2 endpoint, or leave empty for AWS S3; `ServerSideEncryption=true` on S3 |
-| `VideoGeneration:Provider` | `Placeholder` | `Veo` + `VideoGeneration:Veo:ApiKey` / `Model` |
-| `Voice:Provider` | `Placeholder` | `ElevenLabs` + `Voice:ElevenLabs:ApiKey`; voice ids per voice type and model per language are configurable |
+| `VideoGeneration:Provider` | `Storyboard` | `Storyboard` (free AI images + motion), `Placeholder` (offline cards) or `Veo` + `VideoGeneration:Veo:ApiKey` |
+| `Voice:Provider` | `EdgeTts` | `EdgeTts` (free), `Espeak` (offline), `Placeholder` (silent) or `ElevenLabs` + `Voice:ElevenLabs:ApiKey` |
 | `Database:MigrateOnStartup` | `true` | Apply EF migrations when the API starts |
 
 Adding another video engine (Runway, Luma, Kling) means implementing

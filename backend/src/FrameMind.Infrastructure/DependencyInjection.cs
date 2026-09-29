@@ -17,6 +17,7 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration config)
     {
+        services.Configure<LlmOptions>(config.GetSection(LlmOptions.Section));
         services.Configure<AnthropicOptions>(config.GetSection(AnthropicOptions.Section));
         services.Configure<MediaOptions>(config.GetSection(MediaOptions.Section));
         services.Configure<StorageOptions>(config.GetSection(StorageOptions.Section));
@@ -42,16 +43,25 @@ public static class DependencyInjection
         services.AddSingleton<S3FileStorage>();
         services.AddSingleton<IFileStorage>(sp => sp.GetRequiredService<S3FileStorage>());
 
-        // AI
-        services.AddSingleton(sp =>
+        // AI: free local Ollama by default, Claude when configured.
+        var llm = config.GetSection(LlmOptions.Section).Get<LlmOptions>() ?? new LlmOptions();
+        if (llm.Provider == LlmProvider.Claude)
         {
-            var key = sp.GetRequiredService<IOptions<AnthropicOptions>>().Value.ApiKey;
-            return string.IsNullOrWhiteSpace(key) ? new AnthropicClient() : new AnthropicClient { ApiKey = key };
-        });
-        services.AddSingleton<ClaudeJsonClient>();
-        services.AddScoped<ClaudeVideoAnalyzer>();
+            services.AddSingleton(sp =>
+            {
+                var key = sp.GetRequiredService<IOptions<AnthropicOptions>>().Value.ApiKey;
+                return string.IsNullOrWhiteSpace(key) ? new AnthropicClient() : new AnthropicClient { ApiKey = key };
+            });
+            services.AddSingleton<ILlmJsonClient, ClaudeJsonClient>();
+        }
+        else
+        {
+            services.AddHttpClient("ollama", c => c.Timeout = TimeSpan.FromMinutes(llm.Ollama.TimeoutMinutes));
+            services.AddSingleton<ILlmJsonClient, OllamaJsonClient>();
+        }
+        services.AddScoped<LlmVideoAnalyzer>();
         services.AddScoped<IVideoAnalyzer, CachedVideoAnalyzer>();
-        services.AddScoped<IScriptGenerator, ClaudeScriptGenerator>();
+        services.AddScoped<IScriptGenerator, LlmScriptGenerator>();
 
         // Media pipeline
         services.AddHttpClient("media", c => c.Timeout = TimeSpan.FromSeconds(30));
@@ -62,13 +72,25 @@ public static class DependencyInjection
         services.AddScoped<SourceVideoProbe>();
         services.AddScoped<IVideoAssembler, FfmpegVideoAssembler>();
 
+        services.AddScoped<EspeakVoiceGenerator>();
         var voice = config.GetSection(VoiceOptions.Section).Get<VoiceOptions>() ?? new VoiceOptions();
-        if (voice.Provider == VoiceProvider.ElevenLabs) services.AddScoped<IVoiceGenerator, ElevenLabsVoiceGenerator>();
-        else services.AddScoped<IVoiceGenerator, PlaceholderVoiceGenerator>();
+        switch (voice.Provider)
+        {
+            case VoiceProvider.ElevenLabs: services.AddScoped<IVoiceGenerator, ElevenLabsVoiceGenerator>(); break;
+            case VoiceProvider.Espeak: services.AddScoped<IVoiceGenerator>(sp => sp.GetRequiredService<EspeakVoiceGenerator>()); break;
+            case VoiceProvider.Placeholder: services.AddScoped<IVoiceGenerator, PlaceholderVoiceGenerator>(); break;
+            default: services.AddScoped<IVoiceGenerator, EdgeTtsVoiceGenerator>(); break;
+        }
 
+        services.AddHttpClient("images", c => c.Timeout = TimeSpan.FromMinutes(3));
+        services.AddScoped<PlaceholderSceneVideoGenerator>();
         var video = config.GetSection(VideoGenerationOptions.Section).Get<VideoGenerationOptions>() ?? new VideoGenerationOptions();
-        if (video.Provider == VideoProvider.Veo) services.AddScoped<ISceneVideoGenerator, VeoSceneVideoGenerator>();
-        else services.AddScoped<ISceneVideoGenerator, PlaceholderSceneVideoGenerator>();
+        switch (video.Provider)
+        {
+            case VideoProvider.Veo: services.AddScoped<ISceneVideoGenerator, VeoSceneVideoGenerator>(); break;
+            case VideoProvider.Placeholder: services.AddScoped<ISceneVideoGenerator>(sp => sp.GetRequiredService<PlaceholderSceneVideoGenerator>()); break;
+            default: services.AddScoped<ISceneVideoGenerator, StoryboardSceneVideoGenerator>(); break;
+        }
 
         services.AddSingleton<IPushNotifier, FcmPushNotifier>();
         return services;

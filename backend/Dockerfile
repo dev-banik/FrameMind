@@ -18,8 +18,12 @@ RUN dotnet publish src/FrameMind.Api -c Release --no-restore -o /out/api \
 
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS media-runtime
 # Noto fonts cover Latin, Bengali and Devanagari for burned-in subtitles.
+# edge-tts (free neural voices) runs from a venv; espeak-ng is the offline fallback.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg fonts-noto-core ca-certificates curl \
+      espeak-ng python3 python3-venv \
+ && python3 -m venv /opt/edge-tts && /opt/edge-tts/bin/pip install --no-cache-dir edge-tts \
+ && ln -s /opt/edge-tts/bin/edge-tts /usr/local/bin/edge-tts \
  && curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux -o /usr/local/bin/yt-dlp \
  && chmod +x /usr/local/bin/yt-dlp \
  && apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
