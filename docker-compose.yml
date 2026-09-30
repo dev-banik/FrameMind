@@ -11,10 +11,10 @@ x-backend-env: &backend-env
   Firebase__ProjectId: ${FIREBASE_PROJECT_ID:-}
   Firebase__PushEnabled: ${FIREBASE_PUSH_ENABLED:-false}
   Firebase__CredentialsPath: ${FIREBASE_CREDENTIALS_PATH:-}
-  Storage__ServiceUrl: http://minio:9000
-  Storage__PublicServiceUrl: ${STORAGE_PUBLIC_URL:-http://localhost:9000}
-  Storage__AccessKey: ${MINIO_ROOT_USER:-framemind}
-  Storage__SecretKey: ${MINIO_ROOT_PASSWORD:-framemind-secret}
+  Storage__ServiceUrl: http://storage:8333
+  Storage__PublicServiceUrl: ${STORAGE_PUBLIC_URL:-http://localhost:8333}
+  Storage__AccessKey: ${S3_ACCESS_KEY:-framemind}
+  Storage__SecretKey: ${S3_SECRET_KEY:-framemind-secret}
   Storage__ForcePathStyle: "true"
   Storage__CreateBucketIfMissing: "true"
   VideoGeneration__Provider: ${VIDEO_PROVIDER:-Storyboard}
@@ -51,16 +51,26 @@ services:
       interval: 10s
       retries: 10
 
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
+  # Free S3-compatible object storage (MinIO no longer publishes free images).
+  # Credentials come from .env and are written into SeaweedFS's S3 identity config.
+  storage:
+    image: chrislusf/seaweedfs:latest
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-framemind}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-framemind-secret}
-    ports: ["9000:9000", "9001:9001"]
-    volumes: [miniodata:/data]
-
-  # Free local LLM (CPU). First start downloads the model (~3.3 GB) once.
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-framemind}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-framemind-secret}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        printf '{"identities":[{"name":"framemind","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]}]}'
+        "$$S3_ACCESS_KEY" "$$S3_SECRET_KEY" > /tmp/s3.json &&
+        exec weed server -dir=/data -s3 -s3.port=8333 -s3.config=/tmp/s3.json
+    ports: ["8333:8333"]
+    volumes: [storagedata:/data]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9333/cluster/status"]
+      interval: 5s
+      retries: 30
+    restart: unless-stopped
   ollama:
     image: ollama/ollama:latest
     ports: ["11434:11434"]
@@ -81,6 +91,7 @@ services:
 
   api:
     build: { context: ./backend, target: api }
+    restart: unless-stopped
     environment:
       <<: *backend-env
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
@@ -91,11 +102,12 @@ services:
       postgres: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
       redis: { condition: service_started }
-      minio: { condition: service_started }
+      storage: { condition: service_healthy }
       ollama: { condition: service_healthy }
 
   worker:
     build: { context: ./backend, target: worker }
+    restart: unless-stopped
     environment:
       <<: *backend-env
       DOTNET_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
@@ -107,5 +119,5 @@ services:
 
 volumes:
   pgdata:
-  miniodata:
+  storagedata:
   ollamadata:

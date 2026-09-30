@@ -21,7 +21,7 @@ backend/            ASP.NET Core 9 Web API + worker (Clean Architecture, CQRS)
   src/FrameMind.Worker          Queue consumer: voice → video → render → notify
 mobile/             Flutter app (Android + iOS), Riverpod, Hive
 docs/API.md         REST contract shared by backend and mobile
-docker-compose.yml  PostgreSQL, Redis, RabbitMQ, MinIO, Ollama, API, Worker
+docker-compose.yml  PostgreSQL, Redis, RabbitMQ, SeaweedFS (S3), Ollama, API, Worker
 ```
 
 ## Architecture
@@ -55,7 +55,7 @@ Everything runs on free resources by default:
 | Scene visuals | **Storyboard**: one AI image per scene (Pollinations.ai, keyless) animated with pan/zoom | `VIDEO_PROVIDER=Veo` + `GOOGLE_API_KEY` |
 | Voice | **edge-tts** neural voices (falls back to offline eSpeak NG) | `VOICE_PROVIDER=ElevenLabs` + `ELEVENLABS_API_KEY` |
 | Login + push | Firebase free (Spark) plan | – |
-| DB, cache, queue, storage | PostgreSQL, Redis, RabbitMQ, MinIO in Docker | – |
+| DB, cache, queue, storage | PostgreSQL, Redis, RabbitMQ, SeaweedFS (S3) in Docker | – |
 
 Prerequisites: [Docker Desktop](https://www.docker.com/products/docker-desktop/)
 (free for personal use), ~12 GB free disk, 16 GB RAM recommended.

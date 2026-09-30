@@ -44,7 +44,7 @@ Or run infra in Docker and the .NET projects on the host (needs `ffmpeg`,
 `ffprobe` and `yt-dlp` on PATH):
 
 ```bash
-docker compose up -d postgres redis rabbitmq minio
+docker compose up -d postgres redis rabbitmq storage
 cd backend
 dotnet user-secrets --project src/FrameMind.Api set Anthropic:ApiKey "sk-ant-..."
 dotnet run --project src/FrameMind.Api      # http://localhost:5172
@@ -71,7 +71,7 @@ The OpenAPI document is served at `/openapi/v1.json` in Development.
 | `Anthropic:ApiKey`, `Anthropic:Model` | –, `claude-opus-5-5` | Used when `Llm:Provider=Claude` |
 | `Firebase:ProjectId` | – | Required in production for token validation |
 | `Firebase:PushEnabled`, `Firebase:CredentialsPath` | `false` | FCM service account |
-| `Storage:*` | MinIO on :9000 | Set `ServiceUrl` to your R2 endpoint, or leave empty for AWS S3; `ServerSideEncryption=true` on S3 |
+| `Storage:*` | SeaweedFS S3 on :8333 | Set `ServiceUrl` to your R2 endpoint, or leave empty for AWS S3; `ServerSideEncryption=true` on S3 |
 | `VideoGeneration:Provider` | `Storyboard` | `Storyboard` (free AI images + motion), `Placeholder` (offline cards) or `Veo` + `VideoGeneration:Veo:ApiKey` |
 | `Voice:Provider` | `EdgeTts` | `EdgeTts` (free), `Espeak` (offline), `Placeholder` (silent) or `ElevenLabs` + `Voice:ElevenLabs:ApiKey` |
 | `Database:MigrateOnStartup` | `true` | Apply EF migrations when the API starts |
